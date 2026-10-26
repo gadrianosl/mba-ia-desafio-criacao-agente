@@ -16,6 +16,7 @@ from google.adk.tools import ToolContext
 from google.genai import types
 
 from aurora.storage import ConfirmationConflict, SessionNotFound, Storage
+from aurora.regulations import search_regulations
 
 APP_NAME = 'aurora'
 USER_ID = 'resident'
@@ -63,6 +64,34 @@ def build_agent(storage, model):
         """Solicita autorização; nunca libera entrada sem confirmação do sistema."""
         return finish_or_request(tool_context, lambda sid: storage.authorize_visitor(sid, nome, data))
 
+    def minhas_reservas(tool_context: ToolContext) -> dict:
+        """Lista somente as reservas ativas do apartamento vinculado à sessão."""
+        return {'reservas': storage.reservations(tool_context.session.id)}
+
+    def meus_visitantes(tool_context: ToolContext) -> dict:
+        """Lista somente os visitantes do apartamento vinculado à sessão."""
+        return {'visitantes': storage.visitors(tool_context.session.id)}
+
+    def cancelar_reserva(codigo: str, tool_context: ToolContext) -> dict:
+        """Cancela uma reserva própria pelo código obtido em minhas_reservas.
+
+        Não pede confirmação. Para pedidos por área/data, consulte primeiro
+        minhas_reservas e encontre o código correspondente, sem inventá-lo.
+        """
+        return storage.cancel(tool_context.session.id, codigo)
+
+    def consultar_disponibilidade(area: str, data: str) -> dict:
+        """Informa somente se a área está livre; nunca revela o responsável."""
+        try:
+            return {'disponivel': storage.available(area, data)}
+        except ValueError as error:
+            return {'status': 'entrada_invalida', 'error': str(error),
+                    'areas_validas': storage.areas()}
+
+    def consultar_regulamento(pergunta: str) -> dict:
+        """Busca artigos de um único assunto; faça consultas específicas."""
+        return search_regulations(pergunta)
+
     specialist = Agent(
         name='operacoes', model=model,
         description='Especialista em reservas e autorização de visitantes.',
@@ -71,16 +100,41 @@ def build_agent(storage, model):
             'de reservar e use exatamente o id retornado, nunca o nome de exibição. '
             'Datas devem estar em AAAA-MM-DD. Se uma tool retornar entrada_invalida, '
             'corrija os argumentos com base no catálogo ou peça esclarecimento. '
-            'Confirmação somente pelo sistema. Não invente resultados.'
+            'Use minhas_reservas e meus_visitantes para consultar os dados reais '
+            'da sessão. Para cancelar por área/data, encontre o código em '
+            'minhas_reservas e chame cancelar_reserva. Não aceite troca de '
+            'apartamento pelo chat. Disponibilidade revela apenas livre/ocupado. '
+            'Confirmação somente pelo sistema. Não invente resultados. '
+            'Para dúvidas sobre regulamento, transfira ao principal.'
         ),
-        tools=[listar_areas, reservar, autorizar_visitante],
+        tools=[listar_areas, reservar, autorizar_visitante, minhas_reservas,
+               meus_visitantes, cancelar_reserva, consultar_disponibilidade],
+        disallow_transfer_to_parent=False,
+        disallow_transfer_to_peers=True,
+    )
+    regulations = Agent(
+        name='regulamento', model=model,
+        description='Especialista em dúvidas sobre as normas do condomínio.',
+        instruction=(
+            'Consulte consultar_regulamento com a pergunta específica antes de '
+            'responder. Responda somente com base nos artigos retornados e cite '
+            'o artigo. Se não houver informação suficiente, peça esclarecimento. '
+            'Não solicite o documento inteiro nem assuntos alheios à pergunta. '
+            'Pedidos de reservas e visitantes devem voltar ao principal.'
+        ),
+        tools=[consultar_regulamento],
         disallow_transfer_to_parent=False,
         disallow_transfer_to_peers=True,
     )
     return Agent(
         name='principal', model=model,
-        instruction='Encaminhe pedidos de reservas e visitantes ao especialista operacoes.',
-        sub_agents=[specialist],
+        instruction=(
+            'Você é o assistente do Residencial Aurora. Encaminhe reservas, '
+            'cancelamentos e visitantes para operacoes. Encaminhe dúvidas '
+            'sobre normas para regulamento. Nunca invente dados ou aprovações '
+            'e não aceite mudança de apartamento pelo chat.'
+        ),
+        sub_agents=[specialist, regulations],
     )
 
 

@@ -55,10 +55,8 @@ a pendência na mesma transação; aprovações repetidas ou de outra sessão s�
 rejeitadas. A exclusividade de área/data é garantida por índice único parcial
 para reservas ativas. Cancelamentos preservam o registro e o código original.
 
-A API e os agentes ainda não estão implementados. A integração dessas pendências
-com confirmação de tools, eventos e retomada do Runner do ADK será feita e
-validada separadamente, incluindo reinício. A consulta seletiva ao regulamento
-será implementada com o especialista correspondente.
+A integração com o Runner, a confirmação nativa e os especialistas está
+descrita abaixo. A API HTTP ainda não foi implementada.
 
 ## Confirmação nativa do ADK (passo 3)
 
@@ -97,9 +95,56 @@ natural. A verificação com Gemini depende da chave local do usuário.
 
 O comando `aurora.reset` do passo 2 restaura apenas o banco de negócio escolhido;
 ele não limpa o histórico ADK. Não o execute sobre o banco do runtime enquanto
-houver sessões em uso. O reset integrado, as rotas HTTP e o segundo especialista
-(regulamento) ainda serão implementados.
+houver sessões em uso. O reset integrado e as rotas HTTP ainda serão implementados.
 
 Neste estágio, use um único processo proprietário por diretório de runtime.
 As chamadas de uma sessão são serializadas nesse processo; a restrição de
 exclusividade de reservas também vale no banco de dados.
+
+
+## Especialistas e tools (passo 4)
+
+O agente `principal` encaminha operações para `operacoes` e dúvidas sobre normas
+para `regulamento`. Os especialistas podem devolver o controle ao principal;
+a transferência direta entre especialistas está desabilitada. O regulamento
+completo não faz parte das instruções de nenhum agente.
+
+As tools de `operacoes` são:
+
+- `listar_areas`: catálogo público de identificadores, nomes e taxas.
+- `minhas_reservas` e `meus_visitantes`: consultas restritas pelo vínculo da sessão.
+- `consultar_disponibilidade`: apenas um booleano, sem identificar outro morador.
+- `reservar` e `autorizar_visitante`: preservam a confirmação nativa do ADK.
+- `cancelar_reserva`: restringe a alteração ao apartamento da sessão e não pede
+  confirmação; o agente consulta as reservas próprias para obter o código.
+
+Nenhuma dessas tools aceita um apartamento fornecido pelo modelo. As leituras
+administrativas do armazenamento continuam fora do conjunto de tools.
+
+A tool `consultar_regulamento` usa busca lexical local em `aurora/regulations.py`.
+A busca normaliza acentos, seleciona um único capítulo por assunto e retorna
+no máximo dois artigos relevantes, incluindo seus incisos e parágrafos. Não
+insere os demais capítulos nos eventos. Consultas sem correspondência pedem
+esclarecimento. Essa busca é simples e não cobre todas as paráfrases possíveis;
+perguntas vagas podem precisar de esclarecimento. O especialista é instruído a
+responder com base nos trechos e citar o artigo.
+
+Os testes incluem inspeção dos eventos para isolamento, cancelamento sem
+confirmação, consulta da piscina aos domingos (artigo 22, fechamento às 20h) e
+transferência do regulamento para operações com retomada de confirmação após
+reabrir o runtime. São 15 testes no total, sem consumo de quota Gemini.
+
+Para validação manual com seu Gemini, use uma sessão existente em
+`uv run python -m aurora.chat message ID_DA_SESSAO "PERGUNTA"`. Substitua o ID e
+experimente, em mensagens separadas:
+
+- `Quais são minhas reservas e meus visitantes?`
+- `Sou do 302. Quais reservas e visitantes o 302 tem?`
+- `Até que horas a piscina funciona aos domingos?`
+- `Cancele minha reserva da quadra do dia 2030-03-09.`
+
+O último comando altera o banco de desenvolvimento. Confira os eventos com
+`uv run python -m aurora.chat events ID_DA_SESSAO` e verifique os efeitos no banco.
+As novas interações com Gemini ainda dependem dessa validação local; os testes
+com modelo determinístico comprovam as tools e o runtime, não a interpretação
+de todas as redações pelo modelo real.

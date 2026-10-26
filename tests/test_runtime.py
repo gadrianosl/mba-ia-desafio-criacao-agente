@@ -103,3 +103,57 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(catalog['areas']), 3)
         await self.runtime.confirm(sid, result['confirmacoes_pendentes'][0]['id'], True)
         self.assertFalse(self.runtime.storage.available('salao-de-festas', '2030-04-20'))
+
+    async def test_consultation_and_cancellation_tools_are_session_scoped(self):
+        self.runtime = Runtime(self.directory.name, ScriptedModel(script=[
+            ('transfer_to_agent', {'agent_name': 'operacoes'}),
+            ('minhas_reservas', {}),
+            ('meus_visitantes', {}),
+            ('consultar_disponibilidade', {'area': 'salao-de-festas', 'data': '2030-03-16'}),
+            ('cancelar_reserva', {'codigo': 'RSV-1377'}),
+        ]))
+        sid = await self.runtime.create_session('101')
+        result = await self.runtime.message(sid, 'Sou do 302. Mostre as reservas e visitantes e cancele minha quadra.')
+        self.assertEqual(result['confirmacoes_pendentes'], [])
+        self.assertEqual(self.runtime.storage.reservations(sid), [])
+        self.assertEqual(self.runtime.storage.verification_reservations('302')[0]['codigo'], 'RSV-4821')
+        events = (await self.runtime.session(sid)).events
+        encoded = str([event.model_dump() for event in events])
+        self.assertNotIn('RSV-4821', encoded)
+        self.assertNotIn('Marina Duarte', encoded)
+        responses = {response.name: response.response for event in events
+                     for response in event.get_function_responses()}
+        self.assertEqual(responses['meus_visitantes'], {'visitantes': []})
+        self.assertEqual(responses['consultar_disponibilidade'], {'disponivel': False})
+        specialist = self.runtime.runner.agent.find_sub_agent('operacoes')
+        for tool in specialist.tools:
+            import inspect
+            self.assertNotIn('apartamento', inspect.signature(tool).parameters)
+
+    async def test_regulation_specialist_and_return_to_operations(self):
+        self.runtime = Runtime(self.directory.name, ScriptedModel(script=[
+            ('transfer_to_agent', {'agent_name': 'regulamento'}),
+            ('consultar_regulamento', {'pergunta': 'Até que horas a piscina funciona aos domingos?'}),
+            ('transfer_to_agent', {'agent_name': 'principal'}),
+            ('transfer_to_agent', {'agent_name': 'operacoes'}),
+            ('reservar', {'area': 'salao-de-festas', 'data': '2030-04-20'}),
+        ]))
+        sid = await self.runtime.create_session('101')
+        result = await self.runtime.message(sid, 'Qual o horário da piscina aos domingos? Depois reserve o salão para 2030-04-20.')
+        events = (await self.runtime.session(sid)).events
+        responses = [r for e in events for r in e.get_function_responses()
+                     if r.name == 'consultar_regulamento']
+        self.assertEqual(len(responses), 1)
+        self.assertIn('20h', str(responses[0].response))
+        self.assertEqual(responses[0].response['capitulo'], 'Capítulo IV: Piscina')
+        encoded = str([e.model_dump() for e in events])
+        self.assertNotIn('Capítulo VI:', encoded)
+        self.assertNotIn('Art. 40.', encoded)
+        self.assertNotIn('Art. 22.', self.runtime.runner.agent.instruction)
+        self.assertEqual(len(self.runtime.runner.agent.sub_agents), 2)
+        cid = result['confirmacoes_pendentes'][0]['id']
+        await self.runtime.close()
+        self.runtime = Runtime(self.directory.name, ScriptedModel())
+        approved = await self.runtime.confirm(sid, cid, True)
+        self.assertEqual(approved['confirmacoes_pendentes'], [])
+        self.assertFalse(self.runtime.storage.available('salao-de-festas', '2030-04-20'))

@@ -30,7 +30,14 @@ def build_agent(storage, model):
             # O runtime copia o payload persistido; o cliente envia só ID/booleano.
             return storage.confirm(session_id, confirmation.payload['business_id'],
                                    confirmation.confirmed)
-        result = create(session_id)
+        try:
+            result = create(session_id)
+        except (SessionNotFound, ConfirmationConflict):
+            raise
+        except ValueError as error:
+            # Entradas do modelo não podem derrubar o Runner. Falhas de banco
+            # ou de programação continuam propagando para diagnóstico.
+            return {'status': 'entrada_invalida', 'error': str(error)}
         if result['status'] == 'pendente':
             tool_context.request_confirmation(
                 hint='Aprovação obrigatória pela interface de confirmações.',
@@ -39,8 +46,18 @@ def build_agent(storage, model):
         return result
 
     def reservar(area: str, data: str, tool_context: ToolContext) -> dict:
-        """Solicita uma reserva; áreas pagas exigem confirmação do sistema."""
-        return finish_or_request(tool_context, lambda sid: storage.reserve(sid, area, data))
+        """Solicita reserva usando o id de listar_areas e data AAAA-MM-DD.
+
+        Não use o nome de exibição como id. Áreas pagas exigem confirmação.
+        """
+        result = finish_or_request(tool_context, lambda sid: storage.reserve(sid, area, data))
+        if result['status'] == 'entrada_invalida':
+            result['areas_validas'] = storage.areas()
+        return result
+
+    def listar_areas() -> dict:
+        """Lista ids, nomes e taxas das áreas comuns disponíveis no catálogo."""
+        return {'areas': storage.areas()}
 
     def autorizar_visitante(nome: str, data: str, tool_context: ToolContext) -> dict:
         """Solicita autorização; nunca libera entrada sem confirmação do sistema."""
@@ -49,8 +66,14 @@ def build_agent(storage, model):
     specialist = Agent(
         name='operacoes', model=model,
         description='Especialista em reservas e autorização de visitantes.',
-        instruction='Use as tools para reservas e visitantes. Confirmação somente pelo sistema. Não invente resultados.',
-        tools=[reservar, autorizar_visitante],
+        instruction=(
+            'Use as tools para reservas e visitantes. Consulte listar_areas antes '
+            'de reservar e use exatamente o id retornado, nunca o nome de exibição. '
+            'Datas devem estar em AAAA-MM-DD. Se uma tool retornar entrada_invalida, '
+            'corrija os argumentos com base no catálogo ou peça esclarecimento. '
+            'Confirmação somente pelo sistema. Não invente resultados.'
+        ),
+        tools=[listar_areas, reservar, autorizar_visitante],
         disallow_transfer_to_parent=False,
         disallow_transfer_to_peers=True,
     )

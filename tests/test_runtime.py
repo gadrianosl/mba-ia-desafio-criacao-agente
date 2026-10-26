@@ -82,3 +82,24 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.storage.visitors(sid), [])
         await runtime.confirm(sid, result['confirmacoes_pendentes'][0]['id'], True)
         self.assertEqual(runtime.storage.visitors(sid), [{'nome': 'Joana Ribeiro', 'data': '2030-04-21'}])
+
+    async def test_invalid_area_is_recoverable_without_side_effects(self):
+        self.runtime = Runtime(self.directory.name, ScriptedModel(script=[
+            ('transfer_to_agent', {'agent_name': 'operacoes'}),
+            ('listar_areas', {}),
+            ('reservar', {'area': 'Salão de festas', 'data': '2030-04-20'}),
+            ('reservar', {'area': 'salao-de-festas', 'data': '2030-04-20'}),
+        ]))
+        sid = await self.runtime.create_session('101')
+        result = await self.runtime.message(sid, 'Reserve o salão de festas')
+        self.assertEqual(len(result['confirmacoes_pendentes']), 1)
+        self.assertTrue(self.runtime.storage.available('salao-de-festas', '2030-04-20'))
+        responses = [r for e in (await self.runtime.session(sid)).events
+                     for r in e.get_function_responses()]
+        invalid = next(r.response for r in responses
+                       if r.response.get('status') == 'entrada_invalida')
+        self.assertIn('salao-de-festas', [a['id'] for a in invalid['areas_validas']])
+        catalog = next(r.response for r in responses if r.name == 'listar_areas')
+        self.assertEqual(len(catalog['areas']), 3)
+        await self.runtime.confirm(sid, result['confirmacoes_pendentes'][0]['id'], True)
+        self.assertFalse(self.runtime.storage.available('salao-de-festas', '2030-04-20'))

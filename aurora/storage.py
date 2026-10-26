@@ -174,6 +174,12 @@ class Storage:
             return not db.execute('SELECT 1 FROM reservations WHERE area=? AND day=? AND active=1',
                                   (area, day)).fetchone()
 
+    def areas(self):
+        """Catálogo público, sem dados de moradores ou reservas."""
+        with self._transaction() as db:
+            return [dict(row) for row in db.execute(
+                'SELECT id, name AS nome, fee AS taxa FROM areas ORDER BY id')]
+
     @staticmethod
     def _pending(db, session_id, action, details):
         confirmation_id = str(uuid4())

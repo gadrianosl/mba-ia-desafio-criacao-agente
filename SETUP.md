@@ -59,3 +59,47 @@ A API e os agentes ainda não estão implementados. A integração dessas pendê
 com confirmação de tools, eventos e retomada do Runner do ADK será feita e
 validada separadamente, incluindo reinício. A consulta seletiva ao regulamento
 será implementada com o especialista correspondente.
+
+## Confirmação nativa do ADK (passo 3)
+
+`aurora/runtime.py` conecta o Runner à persistência SQLite de sessões/eventos e
+às pendências de negócio. A tool solicita confirmação por
+`ToolContext.request_confirmation`. O cliente recebe o ID do evento
+`adk_request_confirmation`; `Runtime.confirm` valida esse ID contra as pendências
+da sessão e produz o `FunctionResponse` esperado pelo ADK. O modelo não recebe
+uma tool de aprovação. O apartamento usado na gravação vem do vínculo imutável
+da sessão de negócio.
+
+Nesta topologia, o especialista permite transferência ao pai e o App não ativa
+`resumability_config`. Essa combinação foi validada com o ADK 2.9.1 para que o
+Runner retome o especialista original com o histórico recuperado do SQLite.
+Não confundir a ausência dessa opção com sessões em memória: os eventos são
+persistidos em disco. Mudanças na topologia exigem repetir os testes de retomada.
+
+Para testar com seu Gemini, configure o `.env` e execute:
+
+```bash
+uv run --locked python -m aurora.chat create 101
+uv run --locked python -m aurora.chat message ID_DA_SESSAO 'Reserve o salão de festas para 2030-04-20'
+uv run --locked python -m aurora.chat confirm ID_DA_SESSAO ID_DA_CONFIRMACAO approve
+uv run --locked python -m aurora.chat events ID_DA_SESSAO
+```
+
+Substitua os IDs pelos valores retornados. Para negar, use `deny` em vez de
+`approve`. Cada comando inicia um processo novo e recupera os mesmos bancos em
+`.local/runtime/`: `business.sqlite3` e `sessions.sqlite3`. Não remova esses
+arquivos entre mensagens e confirmações.
+
+Os testes em `tests/test_runtime.py` usam um modelo determinístico local para
+acionar transferência e chamadas de tools; o Runner, as confirmações e os bancos
+são reais. Eles não comprovam acesso ao Gemini ou interpretação de linguagem
+natural. A verificação com Gemini depende da chave local do usuário.
+
+O comando `aurora.reset` do passo 2 restaura apenas o banco de negócio escolhido;
+ele não limpa o histórico ADK. Não o execute sobre o banco do runtime enquanto
+houver sessões em uso. O reset integrado, as rotas HTTP e o segundo especialista
+(regulamento) ainda serão implementados.
+
+Neste estágio, use um único processo proprietário por diretório de runtime.
+As chamadas de uma sessão são serializadas nesse processo; a restrição de
+exclusividade de reservas também vale no banco de dados.

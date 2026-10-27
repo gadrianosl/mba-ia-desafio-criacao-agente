@@ -214,3 +214,63 @@ reinício, eventos completos e reset repetível, usando o modelo determinístico
 O servidor Uvicorn também foi validado com requisições HTTP reais e reinício de
 processo, sem chamada ao Gemini. A validação HTTP com Gemini real depende do
 `.env` local do usuário.
+
+## Roteiro de aceitação (passo 6)
+
+O verificador `scripts/verify_acceptance.py` sobe seu próprio Uvicorn numa porta
+local livre e usa bancos separados dentro de `.local/acceptance/`. Não modifica
+nem restaura os bancos normais do chat/API. Ele encerra somente os processos que
+iniciou. Cada execução produz `report.json`, `server.log` e os bancos de teste no
+diretório informado no início. Esses arquivos são locais e ignorados pelo Git.
+
+Sem chamadas ao Gemini:
+
+```bash
+uv run --locked python scripts/verify_acceptance.py --provider local
+```
+
+Esse modo usa `tests/acceptance_model.py`, uma fixture que escolhe chamadas de
+tools previstas para as mensagens do roteiro. Não comprova interpretação de
+linguagem natural, resistência do Gemini a instruções maliciosas ou qualidade
+das respostas do modelo real. O modo de produção nunca importa essa fixture.
+As verificações observam os efeitos via HTTP, as respostas das tools, o conteúdo
+dos eventos e os bancos; não usam a saída textual genérica da fixture como prova
+de uma gravação.
+
+Com a chave e o modelo reais configurados no `.env`:
+
+```bash
+uv run --locked python scripts/verify_acceptance.py --provider gemini
+```
+
+Esse comando consome quota e pode levar cerca de 20 minutos: por padrão, espera
+60 segundos entre operações que acionam o Gemini. Uma mensagem pode envolver
+várias chamadas por causa das transferências e das tools; o intervalo não garante
+que a quota do provedor nunca seja atingida. Os limites diários também se aplicam.
+Caso ocorra 429, não há repetição automática de ações; o roteiro para e salva o
+resultado parcial. Analise `report.json` e `server.log` antes de repetir. Se houver
+quota maior disponível, reduza o intervalo explicitamente, por exemplo
+`--interval 15` (de 0 a 60 segundos).
+
+O roteiro percorre os passos 1 a 14 do avaliador: estado inicial, sessões,
+isolamento na resposta e nos eventos, cancelamentos, área gratuita, negação e
+aprovação de reserva paga, confirmação repetida/inválida, data ocupada,
+visitantes, piscina, persistência com reinício real do servidor e concorrência
+HTTP. O passo 1 usa instalação do projeto atual e bancos novos; não substitui a
+verificação de um clone limpo do fork na entrega final. Os comandos precisam ser
+executados com o projeto clonado com seu histórico Git, pois a comparação dos
+dados usa o commit inicial `be87e1d` como referência.
+
+O passo 15 é marcado como **parcial**: verifica a versão exata do ADK no manifesto
+e lock, ausência de padrões conhecidos de chave nos arquivos do projeto, `.env`
+fora da lista de arquivos e igualdade dos dados com o commit inicial. Essa busca
+de padrões não substitui uma revisão de credenciais. A revisão da arquitetura,
+das referências do README e a comparação com o repositório base oficial serão
+concluídas na revisão final da entrega (passo 7).
+
+Validação neste ambiente: os 19 testes automatizados passaram e o roteiro HTTP
+passou de 1 a 14 com fixture local. Os bancos normais permaneceram intactos.
+O roteiro completo com Gemini real ainda não foi executado aqui porque não há
+chave configurada nesta máquina. As validações manuais anteriores no computador
+do usuário cobrem parte dos fluxos reais, mas não equivalem à execução completa
+deste roteiro.

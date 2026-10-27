@@ -261,12 +261,13 @@ verificação de um clone limpo do fork na entrega final. Os comandos precisam s
 executados com o projeto clonado com seu histórico Git, pois a comparação dos
 dados usa o commit inicial `be87e1d` como referência.
 
-O passo 15 é marcado como **parcial**: verifica a versão exata do ADK no manifesto
-e lock, ausência de padrões conhecidos de chave nos arquivos do projeto, `.env`
-fora da lista de arquivos e igualdade dos dados com o commit inicial. Essa busca
-de padrões não substitui uma revisão de credenciais. A revisão da arquitetura,
-das referências do README e a comparação com o repositório base oficial serão
-concluídas na revisão final da entrega (passo 7).
+O passo 15 agora verifica também a presença dos especialistas, as assinaturas
+das tools, a ausência de métodos administrativos expostos ao modelo, o índice
+único parcial no banco e as seções e referências locais do README final. Confere
+a versão exata do ADK no manifesto e lock, padrões conhecidos de chave, `.env`
+fora do Git e igualdade dos dados com o commit inicial. A busca de padrões não
+substitui a revisão de credenciais. A revisão final confirmou os dados contra
+a branch main do repositório oficial, que aponta para o mesmo commit inicial.
 
 Validação neste ambiente: os 20 testes automatizados passaram e o roteiro HTTP
 passou de 1 a 14 com fixture local. Os bancos normais permaneceram intactos.

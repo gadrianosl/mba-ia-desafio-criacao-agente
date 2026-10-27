@@ -112,7 +112,7 @@ class Verification:
             'provider': self.provider,
             'escopo': 'HTTP + Runner + SQLite; fixture de LLM' if self.provider == 'local' else 'HTTP + ADK + Gemini real',
             'resultados': self.results, 'falha': failure,
-            'revisao_documentacao': 'README final será validado no passo 7',
+            'revisao_documentacao': 'README e estrutura verificados no passo 15 quando concluído',
         }, ensure_ascii=False, indent=2))
 
     def create(self, apartment):
@@ -291,7 +291,36 @@ class Verification:
             if file.is_file():
                 baseline = subprocess.check_output(['git','show',f'be87e1d:dados/{file.name}'], cwd=ROOT)
                 require(hashlib.sha256(baseline).digest() == hashlib.sha256(file.read_bytes()).digest(), 'Dados iniciais alterados')
-        self.step(15, 'ADK fixado, dados iguais ao commit inicial e arquivos do projeto sem chave; revisão final do README pendente', outcome='parcial')
+        import inspect
+        import sqlite3
+        from aurora.runtime import build_agent
+        from aurora.storage import Storage
+        agent = build_agent(Storage(self.directory/'data'/'business.sqlite3'), 'gemini-2.5-flash')
+        require(len(agent.sub_agents) >= 2, 'Faltam especialistas')
+        operations = agent.find_sub_agent('operacoes')
+        tool_names = {tool.__name__ for tool in operations.tools}
+        require({'minhas_reservas','meus_visitantes','reservar','autorizar_visitante','cancelar_reserva'} <= tool_names, 'Tools de dados incompletas')
+        require(not {'confirm','verification_reservations','verification_visitors'} & tool_names, 'Método administrativo exposto ao modelo')
+        for tool in operations.tools:
+            require(not {'apartamento','apartment'} & set(inspect.signature(tool).parameters), 'Tool aceita apartamento do modelo')
+        regulation = (ROOT/'dados'/'regulamento.md').read_text()
+        for paragraph in re.split(r'\n\s*\n', regulation):
+            if len(paragraph.strip()) > 80:
+                require(paragraph.strip() not in agent.instruction, 'Regulamento carregado no principal')
+        with sqlite3.connect(f'file:{self.directory / "data/business.sqlite3"}?mode=ro', uri=True) as db:
+            index = db.execute("SELECT sql FROM sqlite_master WHERE name='one_active_reservation'").fetchone()
+            require(index and 'UNIQUE' in index[0] and 'WHERE active = 1' in index[0], 'Exclusividade não garantida pelo índice do banco')
+        readme = (ROOT/'README.md').read_text()
+        for heading in ('## Arquitetura','## Garantias','## Como rodar'):
+            require(heading in readme, f'Readme sem seção {heading}')
+        for target in re.findall(r'\]\(([^)]+)\)', readme):
+            if not target.startswith(('https://','http://','#')):
+                require((ROOT/target.split('#')[0]).is_file(), f'Referência inexistente no README: {target}')
+        example = dict(line.split('=',1) for line in (ROOT/'.env.example').read_text().splitlines()
+                       if line.strip() and not line.startswith('#') and '=' in line)
+        require(example.get('GOOGLE_API_KEY') == '', 'Chave preenchida no exemplo')
+        require('.env' in (ROOT/'.gitignore').read_text().splitlines(), '.env não ignorado')
+        self.step(15, 'ADK, dados, credenciais, especialistas, tools, índice de exclusividade e estrutura/referências do README verificados')
 
 
 def main():
@@ -318,7 +347,7 @@ def main():
     finally:
         verification.stop()
         verification.log.close()
-    print('Roteiro HTTP concluído. Revisão do README final permanece para o passo 7.', flush=True)
+    print('Roteiro HTTP e verificações estruturais concluídos. Confira o provedor do relatório antes de declarar validação com Gemini.', flush=True)
     if args.provider == 'local':
         print('ATENÇÃO: fixture local; interpretação e respostas do Gemini NÃO foram validadas.', flush=True)
     return 0

@@ -1,7 +1,7 @@
 """Persistência das regras de negócio; as tools recebem apenas o ID da sessão.
 
-Sessões aqui guardam a identidade imutável. O histórico do ADK será integrado
-separadamente; esta camada não simula eventos ou confirmações do Runner.
+Sessões aqui guardam a identidade imutável. O histórico do ADK é persistido
+pelo runtime em outro banco; esta camada protege os efeitos de negócio.
 """
 
 import json

@@ -293,3 +293,13 @@ requisições e respostas HTTP locais. Esse arquivo não contém a chave do `.en
 as chamadas à API Gemini não são registradas nele. Todos esses artefatos ficam
 no diretório ignorado da execução. O teste de regressão também verifica que uma
 confirmação negada não pode ser reaprovada, mesmo após criar um novo pedido.
+
+## Revisão final da entrega
+
+O README final substitui o enunciado e contém Arquitetura, Garantias e Como rodar.
+Os dados foram comparados com a main do repositório oficial e estão intactos.
+Em clone separado, `uv sync --locked`, reset, os 20 testes e os passos 1 a 15 do
+roteiro local passaram. O resumo e os limites dessa evidência estão em
+[VALIDATION.md](VALIDATION.md). A rodada completa com Gemini após a correção do
+esclarecimento continua pendente; não deve ser considerada aprovada apenas com
+os resultados da fixture local.

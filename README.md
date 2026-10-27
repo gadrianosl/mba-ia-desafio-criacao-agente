@@ -229,4 +229,7 @@ cancelamento e reinício foram executados. A rodada completa com Gemini chegou
 ao passo 7 antes de encontrar um esclarecimento não tratado pelo verificador.
 O tratamento foi corrigido e testado localmente; a execução completa posterior
 com Gemini ainda precisa ser confirmada. Não se declara essa rodada aprovada
-sem o relatório correspondente. Detalhes e diagnóstico estão em [SETUP.md](SETUP.md).
+sem o relatório correspondente. Instalação, reset, os 20 testes e o roteiro
+local de 1 a 15 também passaram em um clone separado. Evidências e limites
+estão em [VALIDATION.md](VALIDATION.md); detalhes e diagnóstico estão em
+[SETUP.md](SETUP.md).

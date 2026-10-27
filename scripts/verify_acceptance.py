@@ -42,6 +42,7 @@ class Verification:
         self.process = None
         self.results = []
         self.last_message = 0
+        self.trace_lock = threading.Lock()
         with socket.socket() as sock:
             sock.bind(('127.0.0.1', 0))
             self.port = sock.getsockname()[1]
@@ -61,8 +62,17 @@ class Verification:
         with response:
             status = response.code
             body = response.read()
+        try:
+            decoded = json.loads(body)
+        except json.JSONDecodeError:
+            decoded = {'texto': body.decode(errors='replace')}
+        with self.trace_lock:
+            with (self.directory / 'requests.jsonl').open('a') as trace:
+                trace.write(json.dumps({'method': method, 'path': path,
+                    'request': data, 'status': status, 'response': decoded},
+                    ensure_ascii=False) + '\n')
         require(status == expected, f'{method} {path}: esperado {expected}, recebido {status}; veja server.log')
-        return json.loads(body)
+        return decoded
 
     def start(self):
         env = os.environ.copy()
@@ -155,6 +165,25 @@ class Verification:
         require(all(items[0]['detalhes'].get(k) == v for k, v in details.items()), 'Detalhes da pendência incorretos')
         return items[0]['id']
 
+    def repeat_denied_reservation(self, sid, denied_id):
+        details = {'area': 'salao-de-festas', 'data': '2030-04-20'}
+        result = self.message(sid, 'Reserve o salão de festas para 2030-04-20.')
+        require(self.count('101', details['area'], details['data']) == 0,
+                'Novo pedido gravou reserva antes da aprovação')
+        if not result['confirmacoes_pendentes'] and '?' in result['resposta']:
+            # O enunciado permite responder a esclarecimentos do assistente.
+            # Esta resposta renova o pedido; nunca substitui a aprovação HTTP.
+            print('PASSO 8: respondendo a um esclarecimento sobre o novo pedido...', flush=True)
+            result = self.message(sid,
+                'Sim, quero fazer um novo pedido. Reserve o salão de festas '
+                'para 2030-04-20 e apresente uma nova confirmação pendente. '
+                'Vou responder a essa confirmação pela rota de confirmações.')
+            require(self.count('101', details['area'], details['data']) == 0,
+                    'Esclarecimento executou reserva sem aprovação HTTP')
+        cid = self.pending(result, details)
+        require(cid != denied_id, 'Novo pedido reutilizou confirmação negada')
+        return cid
+
     def run(self):
         self.start()
         require(self.reservations('101') == [{'codigo': 'RSV-1377', 'area': 'quadra', 'data': '2030-03-09'}], 'Seed de reservas incorreto')
@@ -183,8 +212,7 @@ class Verification:
         self.confirm(sid, cid, False)
         require(self.count('101', 'salao-de-festas', '2030-04-20') == 0, 'Negação gravou reserva')
         self.step(7, 'Negar confirmação não criou reserva paga')
-        result = self.message(sid, 'Reserve o salão de festas para 2030-04-20.')
-        cid = self.pending(result, {'area':'salao-de-festas', 'data':'2030-04-20'})
+        cid = self.repeat_denied_reservation(sid, cid)
         self.confirm(sid, cid, True)
         require(self.count('101', 'salao-de-festas', '2030-04-20') == 1, 'Aprovação não criou exatamente uma reserva')
         self.confirm(sid, cid, True, 409)

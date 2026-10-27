@@ -28,6 +28,13 @@ class AcceptanceModel(BaseLlm):
             answer = 'A piscina fecha às 20h aos domingos (Art. 22, II).' if 'piscina' in lower else 'Operação consultada; verifique o resultado da tool.'
             yield LlmResponse(content=types.Content(role='model', parts=[types.Part(text=answer)]))
             return
+        # Reproduz o esclarecimento observado no Gemini após uma negação.
+        repeated = sum(any(p.text == text for p in c.parts) for c in contents
+                       if c.role == 'user')
+        if lower == 'reserve o salão de festas para 2030-04-20.' and repeated > 1 and not responses:
+            yield LlmResponse(content=types.Content(role='model', parts=[types.Part(
+                text='A solicitação anterior foi negada. Deseja fazer um novo pedido?')]))
+            return
         target = 'regulamento' if 'piscina' in lower else 'operacoes'
         if (target == 'regulamento' and 'consultar_regulamento' not in tools) or (target == 'operacoes' and 'reservar' not in tools):
             # Especialistas retornam ao principal antes de trocar de assunto.

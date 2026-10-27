@@ -208,7 +208,7 @@ curl -sS "http://127.0.0.1:8000/sessoes/$SESSION_ID/eventos"
 ```
 
 Repetir a aprovação deve retornar 409. A suíte completa roda com
-`uv run --locked python -m unittest discover -s tests -v` (19 testes).
+`uv run --locked python -m unittest discover -s tests -v` (20 testes).
 Ela inclui aprovação, negação, concorrência HTTP com apenas uma reserva ativa,
 reinício, eventos completos e reset repetível, usando o modelo determinístico.
 O servidor Uvicorn também foi validado com requisições HTTP reais e reinício de
@@ -268,9 +268,27 @@ de padrões não substitui uma revisão de credenciais. A revisão da arquitetur
 das referências do README e a comparação com o repositório base oficial serão
 concluídas na revisão final da entrega (passo 7).
 
-Validação neste ambiente: os 19 testes automatizados passaram e o roteiro HTTP
+Validação neste ambiente: os 20 testes automatizados passaram e o roteiro HTTP
 passou de 1 a 14 com fixture local. Os bancos normais permaneceram intactos.
 O roteiro completo com Gemini real ainda não foi executado aqui porque não há
 chave configurada nesta máquina. As validações manuais anteriores no computador
 do usuário cobrem parte dos fluxos reais, mas não equivalem à execução completa
 deste roteiro.
+
+
+### Novo pedido após uma confirmação negada
+
+Uma negação encerra somente a pendência correspondente. Um novo pedido da mesma
+área/data deve chamar a tool novamente e gerar outro ID, sem gravar a reserva
+antes da aprovação pela rota. O agente de operações agora explicita esse fluxo.
+O roteiro aceita um esclarecimento no passo 8 quando o assistente faz uma
+pergunta sem gerar pendência; responde uma vez que se trata de um novo pedido,
+como permitido pelo enunciado. Confere a ausência de gravação antes e depois do
+esclarecimento, a criação de outro ID e a aprovação exclusivamente por HTTP.
+Se o agente continuar sem gerar pendência, o roteiro falha.
+
+Além de `report.json` e `server.log`, o verificador salva `requests.jsonl` com
+requisições e respostas HTTP locais. Esse arquivo não contém a chave do `.env`;
+as chamadas à API Gemini não são registradas nele. Todos esses artefatos ficam
+no diretório ignorado da execução. O teste de regressão também verifica que uma
+confirmação negada não pode ser reaprovada, mesmo após criar um novo pedido.

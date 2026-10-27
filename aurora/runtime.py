@@ -105,6 +105,12 @@ def build_agent(storage, model):
             'minhas_reservas e chame cancelar_reserva. Não aceite troca de '
             'apartamento pelo chat. Disponibilidade revela apenas livre/ocupado. '
             'Confirmação somente pelo sistema. Não invente resultados. '
+            'Uma confirmação negada encerra apenas aquele pedido; não bloqueia '
+            'novas solicitações para a mesma área e data. Se o morador repetir '
+            'um pedido negado, chame reservar novamente para obter uma nova '
+            'pendência. Não reutilize a confirmação anterior nem interprete o '
+            'novo pedido como aprovação: a nova pendência exige resposta pela '
+            'interface de confirmações. '
             'Para dúvidas sobre regulamento, transfira ao principal.'
         ),
         tools=[listar_areas, reservar, autorizar_visitante, minhas_reservas,

@@ -157,3 +157,23 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         approved = await self.runtime.confirm(sid, cid, True)
         self.assertEqual(approved['confirmacoes_pendentes'], [])
         self.assertFalse(self.runtime.storage.available('salao-de-festas', '2030-04-20'))
+
+    async def test_denied_reservation_can_create_a_fresh_confirmation(self):
+        runtime = self.start()
+        sid = await runtime.create_session('101')
+        first = await runtime.message(sid, 'Reserve o salão de festas para 2030-04-20.')
+        denied_id = first['confirmacoes_pendentes'][0]['id']
+        await runtime.confirm(sid, denied_id, False)
+        self.assertTrue(runtime.storage.available('salao-de-festas', '2030-04-20'))
+        runtime.runner.agent.find_sub_agent('operacoes').model.script.extend([
+            ('reservar', {'area': 'salao-de-festas', 'data': '2030-04-20'})])
+        second = await runtime.message(sid, 'Reserve o salão de festas para 2030-04-20.')
+        fresh_id = second['confirmacoes_pendentes'][0]['id']
+        self.assertNotEqual(fresh_id, denied_id)
+        self.assertTrue(runtime.storage.available('salao-de-festas', '2030-04-20'))
+        with self.assertRaises(ConfirmationConflict):
+            await runtime.confirm(sid, denied_id, True)
+        await runtime.confirm(sid, fresh_id, True)
+        matching = [r for r in runtime.storage.reservations(sid)
+                    if r['area'] == 'salao-de-festas' and r['data'] == '2030-04-20']
+        self.assertEqual(len(matching), 1)

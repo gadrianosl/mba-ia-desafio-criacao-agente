@@ -33,10 +33,9 @@ Para restaurar explicitamente os dados (com a aplicação parada):
 uv run --locked python -m aurora.reset
 ```
 
-A restauração apaga vínculos de sessões e confirmações desta camada e repõe
-reservas e visitantes. O registro de códigos permanece para evitar reutilização.
-O histórico de sessões do ADK ainda não foi integrado e não é gerenciado por
-esse comando neste estágio.
+A restauração padrão usa `.local/runtime/`, o mesmo diretório do chat e da API.
+Ela repõe reservas e visitantes e apaga sessões, eventos e pendências. O registro
+de códigos permanece para evitar reutilização. Pare a API e o chat antes de executar.
 
 Para validar as regras, sem chave Gemini e sem alterar o banco de desenvolvimento:
 
@@ -55,8 +54,8 @@ a pendência na mesma transação; aprovações repetidas ou de outra sessão s�
 rejeitadas. A exclusividade de área/data é garantida por índice único parcial
 para reservas ativas. Cancelamentos preservam o registro e o código original.
 
-A integração com o Runner, a confirmação nativa e os especialistas está
-descrita abaixo. A API HTTP ainda não foi implementada.
+A integração com o Runner, a confirmação nativa, os especialistas e a API HTTP
+está descrita abaixo.
 
 ## Confirmação nativa do ADK (passo 3)
 
@@ -93,9 +92,9 @@ acionar transferência e chamadas de tools; o Runner, as confirmações e os ban
 são reais. Eles não comprovam acesso ao Gemini ou interpretação de linguagem
 natural. A verificação com Gemini depende da chave local do usuário.
 
-O comando `aurora.reset` do passo 2 restaura apenas o banco de negócio escolhido;
-ele não limpa o histórico ADK. Não o execute sobre o banco do runtime enquanto
-houver sessões em uso. O reset integrado e as rotas HTTP ainda serão implementados.
+O comando `aurora.reset` agora restaura o diretório do runtime e remove também
+o histórico ADK. Pare a API e o chat antes de executar. A opção legada
+`--database CAMINHO` restaura somente o banco de negócio indicado.
 
 Neste estágio, use um único processo proprietário por diretório de runtime.
 As chamadas de uma sessão são serializadas nesse processo; a restrição de
@@ -132,7 +131,7 @@ responder com base nos trechos e citar o artigo.
 Os testes incluem inspeção dos eventos para isolamento, cancelamento sem
 confirmação, consulta da piscina aos domingos (artigo 22, fechamento às 20h) e
 transferência do regulamento para operações com retomada de confirmação após
-reabrir o runtime. São 15 testes no total, sem consumo de quota Gemini.
+reabrir o runtime. A suíte inclui também os testes HTTP descritos abaixo, sem consumo de quota Gemini.
 
 Para validação manual com seu Gemini, use uma sessão existente em
 `uv run python -m aurora.chat message ID_DA_SESSAO "PERGUNTA"`. Substitua o ID e
@@ -148,3 +147,70 @@ O último comando altera o banco de desenvolvimento. Confira os eventos com
 As novas interações com Gemini ainda dependem dessa validação local; os testes
 com modelo determinístico comprovam as tools e o runtime, não a interpretação
 de todas as redações pelo modelo real.
+
+
+## API HTTP (passo 5)
+
+Com o `.env` configurado, execute na raiz do projeto:
+
+```bash
+uv sync --locked
+uv run --locked uvicorn aurora.api:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Use um único worker por diretório de runtime. A API compartilha os bancos
+`.local/runtime/business.sqlite3` e `.local/runtime/sessions.sqlite3` com o chat.
+Não execute o chat simultaneamente com a API usando o mesmo diretório. Subir a
+API não restaura os dados: reinicie com o mesmo comando para manter o estado.
+
+Para começar do estado inicial, pare a API com Ctrl+C, execute
+`uv run --locked python -m aurora.reset` e inicie novamente. Esse reset apaga as
+sessões e seus eventos; não o execute durante o teste de persistência.
+
+As seis rotas do contrato estão disponíveis:
+
+| Método | Caminho | Comportamento |
+| --- | --- | --- |
+| POST | `/sessoes` | Cria vínculo e sessão; retorna 201 e `session_id`. |
+| POST | `/sessoes/{session_id}/mensagens` | Recebe `texto`; retorna resposta e todas as pendências. |
+| POST | `/sessoes/{session_id}/confirmacoes` | Recebe `id` e `confirmado` booleano; retorna resposta e pendências. |
+| GET | `/sessoes/{session_id}/eventos` | Retorna os eventos completos e ordenados do ADK. |
+| GET | `/apartamentos/{numero}/reservas` | Retorna reservas ativas diretamente do banco. |
+| GET | `/apartamentos/{numero}/visitantes` | Retorna visitantes diretamente do banco. |
+
+Sessões inexistentes retornam 404. Confirmações inexistentes, já respondidas ou
+pertencentes a outra sessão retornam 409. Apartamento desconhecido na criação
+retorna 400. Entradas com campos inválidos retornam 422; `confirmado` exige um
+booleano JSON real, sem aceitar strings como `"false"`. As rotas de verificação
+são administrativas para o avaliador e não estão disponíveis como tools.
+
+Em outro terminal, verifique os dados iniciais e crie uma sessão:
+
+```bash
+curl -sS http://127.0.0.1:8000/apartamentos/101/reservas
+curl -sS http://127.0.0.1:8000/apartamentos/302/visitantes
+curl -sS -X POST http://127.0.0.1:8000/sessoes -H 'Content-Type: application/json' -d '{"apartamento":"101"}'
+```
+
+Copie o ID retornado e defina uma variável (substitua o texto):
+
+```bash
+SESSION_ID='COLE_AQUI_O_SESSION_ID'
+curl -sS -X POST "http://127.0.0.1:8000/sessoes/$SESSION_ID/mensagens" -H 'Content-Type: application/json' -d '{"texto":"Reserve o salão de festas para 2030-04-20"}'
+```
+
+Copie o ID da confirmação retornada e aprove:
+
+```bash
+CONFIRMATION_ID='COLE_AQUI_O_ID_DA_CONFIRMACAO'
+curl -i -X POST "http://127.0.0.1:8000/sessoes/$SESSION_ID/confirmacoes" -H 'Content-Type: application/json' -d "{\"id\":\"$CONFIRMATION_ID\",\"confirmado\":true}"
+curl -sS "http://127.0.0.1:8000/sessoes/$SESSION_ID/eventos"
+```
+
+Repetir a aprovação deve retornar 409. A suíte completa roda com
+`uv run --locked python -m unittest discover -s tests -v` (19 testes).
+Ela inclui aprovação, negação, concorrência HTTP com apenas uma reserva ativa,
+reinício, eventos completos e reset repetível, usando o modelo determinístico.
+O servidor Uvicorn também foi validado com requisições HTTP reais e reinício de
+processo, sem chamada ao Gemini. A validação HTTP com Gemini real depende do
+`.env` local do usuário.
